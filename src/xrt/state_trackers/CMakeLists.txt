@@ -47,3 +47,5 @@ target_include_directories(st_oxr
 	)
 
 set_property(TARGET st_oxr PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+xrt_set_language(${OXR_SOURCE_FILES})

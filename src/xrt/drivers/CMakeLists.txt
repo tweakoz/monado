@@ -35,3 +35,8 @@ if(BUILD_WITH_HIDAPI)
 		PRIVATE ${HIDAPI_INCLUDE_DIRS}
 		)
 endif()
+
+xrt_set_language(${OHMD_SOURCE_FILES})
+if(TARGET drv_hdk)
+	xrt_set_language(${OHMD_SOURCE_FILES})
+endif()

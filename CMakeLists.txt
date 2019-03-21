@@ -42,6 +42,17 @@ if(NOT BUILD_WITH_OPENHMD AND NOT BUILD_WITH_HIDAPI)
     message(FATAL_ERROR "You must enable at least one driver: either provide OpenHMD and enable BUILD_WITH_OPENHMD (for a variety of devices via OpenHMD), or provide HIDAPI and enable BUILD_WITH_HIDAPI (for the HDK driver)")
 endif()
 
+option(BUILD_AS_CXX "Build C sources as C++, for type checking." OFF)
+function(xrt_set_language)
+    if(NOT BUILD_AS_CXX)
+        return()
+    endif()
+    foreach(FN ${ARGN})
+        if(${FN} MATCHES "\.c$")
+            set_source_files_properties(${FN} PROPERTIES LANGUAGE CXX)
+        endif()
+    endforeach()
+endfunction()
 
 ###
 # Flags
@@ -49,7 +60,6 @@ endif()
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pedantic -Wall -Wextra -Wno-unused-parameter")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unused-parameter")
-
 
 ###
 # Decend into madness.

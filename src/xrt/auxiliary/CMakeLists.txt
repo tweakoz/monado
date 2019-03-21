@@ -41,3 +41,6 @@ target_include_directories(aux_math SYSTEM
 	)
 
 set_property(TARGET aux_math PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+xrt_set_language(${SOURCE_FILES})
+xrt_set_language(${MATH_SOURCE_FILES})

@@ -64,4 +64,6 @@ target_include_directories(comp
 	${CMAKE_CURRENT_BINARY_DIR}
 	)
 
+xrt_set_language(${GL_SOURCE_FILES})
+
 add_subdirectory(shaders)
