@@ -189,7 +189,8 @@ vk_create_image_simple(struct vk_bundle *vk,
 	ret = vk->vkCreateImage(vk->device, &image_info, NULL, &image);
 	if (ret != VK_SUCCESS) {
 		VK_ERROR(vk, "vkCreateImage: %s", vk_result_string(ret));
-		goto err;
+		// Nothing to cleanup
+		return ret;
 	}
 
 	VkMemoryRequirements memory_requirements;
@@ -200,7 +201,6 @@ vk_create_image_simple(struct vk_bundle *vk,
 	vk_get_memory_type(vk, memory_requirements.memoryTypeBits,
 	                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 	                   &memory_type_index);
-
 	VkMemoryAllocateInfo alloc_info = {
 	    .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 	    .pNext = NULL,
@@ -230,7 +230,6 @@ err_mem:
 	vk->vkFreeMemory(vk->device, memory, NULL);
 err_image:
 	vk->vkDestroyImage(vk->device, image, NULL);
-err:
 	return ret;
 }
 
@@ -278,7 +277,8 @@ vk_create_image_from_fd(struct vk_bundle *vk,
 	ret = vk->vkCreateImage(vk->device, &info, NULL, &image);
 	if (ret != VK_SUCCESS) {
 		VK_ERROR(vk, "vkCreateImage: %s", vk_result_string(ret));
-		goto err;
+		// Nothing to cleanup
+		return ret;
 	}
 
 	vk->vkGetImageMemoryRequirements(vk->device, image,
@@ -290,15 +290,6 @@ vk_create_image_from_fd(struct vk_bundle *vk,
 		         (uint32_t)memory_requirements.size,
 		         (uint32_t)image_fd->size);
 	}
-
-	if (!vk_get_memory_type(vk, memory_requirements.memoryTypeBits,
-	                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-	                        &memory_type_index)) {
-		VK_ERROR(c, "vk_get_memory_type failed!");
-		ret = VK_ERROR_OUT_OF_DEVICE_MEMORY;
-		goto err_image;
-	}
-
 	VkMemoryDedicatedAllocateInfoKHR dedicated_memory_info = {
 	    .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_KHR,
 	    .pNext = NULL,
@@ -317,8 +308,16 @@ vk_create_image_from_fd(struct vk_bundle *vk,
 	    .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 	    .pNext = &import_memory_info,
 	    .allocationSize = memory_requirements.size,
-	    .memoryTypeIndex = memory_type_index,
 	};
+
+	if (!vk_get_memory_type(vk, memory_requirements.memoryTypeBits,
+	                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+	                        &memory_type_index)) {
+		VK_ERROR(c, "vk_get_memory_type failed!");
+		ret = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+		goto err_image;
+	}
+	alloc_info.memoryTypeIndex = memory_type_index;
 
 	ret =
 	    vk->vkAllocateMemory(vk->device, &alloc_info, NULL, &device_memory);
@@ -343,7 +342,6 @@ err_mem:
 	vk->vkFreeMemory(vk->device, device_memory, NULL);
 err_image:
 	vk->vkDestroyImage(vk->device, image, NULL);
-err:
 	return ret;
 }
 
@@ -455,7 +453,8 @@ vk_init_cmd_buffer(struct vk_bundle *vk, VkCommandBuffer *out_cmd_buffer)
 	if (ret != VK_SUCCESS) {
 		VK_ERROR(vk, "vkAllocateCommandBuffers: %s",
 		         vk_result_string(ret));
-		goto err;
+		// Nothing to cleanup
+		return ret;
 	}
 
 	// Start the command buffer as well.
@@ -476,7 +475,6 @@ vk_init_cmd_buffer(struct vk_bundle *vk, VkCommandBuffer *out_cmd_buffer)
 err_buffer:
 	vk->vkFreeCommandBuffers(vk->device, vk->cmd_pool, 1, &cmd_buffer);
 
-err:
 	return ret;
 }
 
@@ -515,6 +513,14 @@ vk_submit_cmd_buffer(struct vk_bundle *vk, VkCommandBuffer cmd_buffer)
 	VkResult ret = VK_SUCCESS;
 	VkQueue queue;
 	VkFence fence;
+	VkFenceCreateInfo fence_info = {
+	    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+	};
+	VkSubmitInfo submitInfo = {
+	    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+	    .commandBufferCount = 1,
+	    .pCommandBuffers = &cmd_buffer,
+	};
 
 	// Finish the command buffer first.
 	ret = vk->vkEndCommandBuffer(cmd_buffer);
@@ -527,9 +533,6 @@ vk_submit_cmd_buffer(struct vk_bundle *vk, VkCommandBuffer cmd_buffer)
 	vk->vkGetDeviceQueue(vk->device, vk->queue_family_index, 0, &queue);
 
 	// Create the fence.
-	VkFenceCreateInfo fence_info = {
-	    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-	};
 	ret = vk->vkCreateFence(vk->device, &fence_info, NULL, &fence);
 	if (ret != VK_SUCCESS) {
 		VK_ERROR(vk, "vkCreateFence: %s", vk_result_string(ret));
@@ -537,11 +540,6 @@ vk_submit_cmd_buffer(struct vk_bundle *vk, VkCommandBuffer cmd_buffer)
 	}
 
 	// Do the actual submitting.
-	VkSubmitInfo submitInfo = {
-	    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-	    .commandBufferCount = 1,
-	    .pCommandBuffers = &cmd_buffer,
-	};
 
 	ret = vk->vkQueueSubmit(queue, 1, &submitInfo, fence);
 	if (ret != VK_SUCCESS) {
@@ -859,6 +857,7 @@ vk_find_graphics_queue(struct vk_bundle *vk, uint32_t *out_graphics_queue)
 {
 	/* Find the first graphics queue */
 	uint32_t num_queues = 0;
+	uint32_t i = 0;
 	vk->vkGetPhysicalDeviceQueueFamilyProperties(vk->physical_device,
 	                                             &num_queues, NULL);
 
@@ -873,7 +872,6 @@ vk_find_graphics_queue(struct vk_bundle *vk, uint32_t *out_graphics_queue)
 		goto err_free;
 	}
 
-	uint32_t i = 0;
 	for (i = 0; i < num_queues; i++) {
 		if (queue_family_props[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
 			break;

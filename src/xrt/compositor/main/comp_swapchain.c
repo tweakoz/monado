@@ -114,9 +114,9 @@ create_image_fd(struct comp_compositor *c,
 	if (ret != VK_SUCCESS) {
 		COMP_ERROR(c, "->image - vkCreateImage: %s",
 		           vk_result_string(ret));
-		goto err;
+		// Nothing to cleanup
+		return ret;
 	}
-
 
 	/*
 	 * Get the size of the buffer.
@@ -126,18 +126,8 @@ create_image_fd(struct comp_compositor *c,
 	                                   &memory_requirements);
 	size = memory_requirements.size;
 
-	if (!vk_get_memory_type(&c->vk, memory_requirements.memoryTypeBits,
-	                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-	                        &memory_type_index)) {
-		COMP_ERROR(c, "->image - _get_memory_type!");
-		ret = VK_ERROR_OUT_OF_DEVICE_MEMORY;
-		goto err_image;
-	}
 
-	/*
-	 * Create the memory.
-	 */
-
+	// vkAllocateMemory parameters
 	VkMemoryDedicatedAllocateInfoKHR dedicated_memory_info = {
 	    .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_KHR,
 	    .pNext = NULL,
@@ -155,8 +145,26 @@ create_image_fd(struct comp_compositor *c,
 	    .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 	    .pNext = &export_alloc_info,
 	    .allocationSize = size,
-	    .memoryTypeIndex = memory_type_index,
 	};
+
+	// vkGetMemoryFdKHR parameter
+	VkMemoryGetFdInfoKHR fd_info = {
+	    .sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
+	    .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR,
+	};
+
+	if (!vk_get_memory_type(&c->vk, memory_requirements.memoryTypeBits,
+	                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+	                        &memory_type_index)) {
+		COMP_ERROR(c, "->image - _get_memory_type!");
+		ret = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+		goto err_image;
+	}
+	alloc_info.memoryTypeIndex = memory_type_index;
+
+	/*
+	 * Create the memory.
+	 */
 
 	ret = c->vk.vkAllocateMemory(c->vk.device, &alloc_info, NULL,
 	                             &device_memory);
@@ -165,6 +173,7 @@ create_image_fd(struct comp_compositor *c,
 		           vk_result_string(ret));
 		goto err_image;
 	}
+	fd_info.memory = device_memory;
 
 	ret = c->vk.vkBindImageMemory(c->vk.device, image, device_memory, 0);
 	if (ret != VK_SUCCESS) {
@@ -177,12 +186,6 @@ create_image_fd(struct comp_compositor *c,
 	/*
 	 * Get the fd.
 	 */
-
-	VkMemoryGetFdInfoKHR fd_info = {
-	    .sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
-	    .memory = device_memory,
-	    .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR,
-	};
 
 	ret = c->vk.vkGetMemoryFdKHR(c->vk.device, &fd_info, &fd);
 	if (ret != VK_SUCCESS) {
@@ -203,7 +206,6 @@ err_mem:
 	c->vk.vkFreeMemory(c->vk.device, device_memory, NULL);
 err_image:
 	c->vk.vkDestroyImage(c->vk.device, image, NULL);
-err:
 	return ret;
 }
 
