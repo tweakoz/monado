@@ -523,12 +523,13 @@ comp_distortion_init_descriptor_set_layout(struct comp_distortion *d)
 	        .descriptorCount = 1,
 	        .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
 	    },
-
 	    // Binding 1 : Fragment shader uniform buffer
-	    {.binding = 1,
-	     .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-	     .descriptorCount = 1,
-	     .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT},
+	    {
+	        .binding = 1,
+	        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+	        .descriptorCount = 1,
+	        .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+	    },
 	    // binding 2: viewport index
 	    {
 	        .binding = 2,
