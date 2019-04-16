@@ -135,11 +135,14 @@ oxr_verify_full_path_c(struct oxr_logger* log,
                        const char* path,
                        const char* name)
 {
-	size_t length = strlen(path);
-
-	if (length >= UINT32_MAX) {
-		return oxr_error(log, XR_ERROR_PATH_FORMAT_INVALID,
-		                 "(%s) path to long", name);
+	// XR_MAX_PATH_LENGTH is max including null terminator,
+	// length will not include null terminator
+	size_t length = XR_MAX_PATH_LENGTH;
+	for (int i = 0; i < XR_MAX_PATH_LENGTH; i++) {
+		if (path[i] == '\0') {
+			length = i;
+			break;
+		}
 	}
 
 	return oxr_verify_full_path(log, path, (uint32_t)length, name);
@@ -154,11 +157,14 @@ oxr_verify_full_path(struct oxr_logger* log,
 	State state = State::Start;
 	bool valid = true;
 
-	if (length >= UINT32_MAX || (length + 1) > XR_MAX_PATH_LENGTH) {
-		return oxr_error(
-		    log, XR_ERROR_PATH_FORMAT_INVALID,
-		    "(%s) string is too long for a path (%u + 1) > %u", name,
-		    (uint32_t)length, XR_MAX_PATH_LENGTH);
+	if (length >= XR_MAX_PATH_LENGTH) {
+		char formatted_path[XR_MAX_PATH_LENGTH + 6];
+		snprintf(formatted_path, XR_MAX_PATH_LENGTH + 6, "%s[...]",
+		         path);
+		return oxr_error(log, XR_ERROR_PATH_FORMAT_INVALID,
+		                 "(%s) the string '%s' is too long for a path, "
+		                 "must be shorter than %u characters",
+		                 name, formatted_path, XR_MAX_PATH_LENGTH);
 	}
 
 	for (uint32_t i = 0; i < length; i++) {
@@ -166,11 +172,11 @@ oxr_verify_full_path(struct oxr_logger* log,
 		switch (state) {
 		case State::Start:
 			if (c != '/') {
-				return oxr_error(log,
-				                 XR_ERROR_PATH_FORMAT_INVALID,
-				                 "(%s) does not start with a "
-				                 "fowrward slash",
-				                 name);
+				return oxr_error(
+				    log, XR_ERROR_PATH_FORMAT_INVALID,
+				    "(%s) the string '%s' does not "
+				    "start with a forward slash",
+				    name, path);
 			}
 			state = State::Slash;
 			break;
@@ -183,7 +189,9 @@ oxr_verify_full_path(struct oxr_logger* log,
 			case '/':
 				return oxr_error(
 				    log, XR_ERROR_PATH_FORMAT_INVALID,
-				    "(%s) '//' is not a valid in a path", name);
+				    "(%s) the string '%s' contains '//[/]*' "
+				    "which is not valid in a path",
+				    name, path);
 			default:
 				valid = valid_path_char(c);
 				state = State::Middle;
@@ -202,8 +210,9 @@ oxr_verify_full_path(struct oxr_logger* log,
 			case '/':
 				return oxr_error(
 				    log, XR_ERROR_PATH_FORMAT_INVALID,
-				    "(%s) '/.[.]*/' is not a valid in a path",
-				    name);
+				    "(%s) the string '%s' contains '/.[.]*/' "
+				    "which is not valid in a path",
+				    name, path);
 			case '.':
 				// It's valid, more ShashDot(s).
 				break;
@@ -216,9 +225,10 @@ oxr_verify_full_path(struct oxr_logger* log,
 
 		if (!valid) {
 			return oxr_error(log, XR_ERROR_PATH_FORMAT_INVALID,
-			                 "(%s) 0x%02x is not a valid character "
-			                 "at position %u",
-			                 name, c, (uint32_t)length);
+			                 "(%s) the string '%s' contains an "
+			                 "invalid character "
+			                 "0x%02x at position %u",
+			                 name, path, c, (uint32_t)length);
 		}
 	}
 
@@ -226,7 +236,7 @@ oxr_verify_full_path(struct oxr_logger* log,
 	case State::Start:
 		// Empty string
 		return oxr_error(log, XR_ERROR_PATH_FORMAT_INVALID,
-		                 "(%s) a empty string is not a valid path",
+		                 "(%s) an empty string is not a valid path",
 		                 name);
 	case State::Slash:
 		// Is this '/foo/' or '/'
@@ -242,7 +252,9 @@ oxr_verify_full_path(struct oxr_logger* log,
 		// Does the path ends with '/..'
 		return oxr_error(
 		    log, XR_ERROR_PATH_FORMAT_INVALID,
-		    "(%s) strings ending with '/.[.]*' is not a valid", name);
+		    "(%s) the string '%s' ends with '/.[.]*' which "
+		    "is not valid in a path",
+		    name, path);
 
 	case State::Middle:
 		// '/foo/bar' okay!
@@ -251,7 +263,7 @@ oxr_verify_full_path(struct oxr_logger* log,
 		// We should not end up here.
 		return oxr_error(
 		    log, XR_ERROR_RUNTIME_FAILURE,
-		    "(%s) internal runtime error validating path (%s)", name,
+		    "(%s) internal runtime error validating path '%s'", name,
 		    path);
 	}
 }
