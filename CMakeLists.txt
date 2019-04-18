@@ -25,6 +25,27 @@ find_package(OpenGL REQUIRED COMPONENTS GLX)
 find_package(HIDAPI)
 find_package(OpenHMD)
 
+# @TODO Turn into a find_package LIBUSB-1.0 file.
+pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
+add_definitions(-DXRT_HAVE_LIBUSB)
+
+# @TODO Turn into a find_package LIBUVC file.
+pkg_check_modules(LIBUVC libuvc)
+if(LIBUVC_FOUND)
+	add_definitions(-DXRT_HAVE_LIBUVC)
+endif()
+
+# @TODO Turn into a find_package FFMPEG file.
+pkg_check_modules(FFMPEG libavcodec)
+if(FFMPEG_FOUND)
+	add_definitions(-DXRT_HAVE_FFMPEG)
+endif()
+
+# @TODO Turn into a find_package OpenCV file.
+pkg_check_modules(OPENCV opencv)
+if(OPENCV_FOUND)
+	add_definitions(-DXRT_HAVE_OPENCV)
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(X11)
