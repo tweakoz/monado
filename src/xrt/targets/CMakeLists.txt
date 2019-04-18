@@ -6,3 +6,4 @@
 # the source tree and build a complete driver or integration part.
 
 add_subdirectory(openxr)
+add_subdirectory(prober)
