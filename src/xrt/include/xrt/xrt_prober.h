@@ -41,6 +41,7 @@ struct xrt_prober_entry_usb
 struct xrt_prober_entry_lists
 {
 	struct xrt_prober_entry_usb **usb;
+	struct xrt_prober_entry_lists *next;
 };
 
 /*!

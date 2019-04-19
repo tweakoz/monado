@@ -34,6 +34,7 @@ struct xrt_prober_entry_usb *usb_lists[] = {
 
 struct xrt_prober_entry_lists list = {
     usb_lists,
+    NULL,
 };
 
 int
