@@ -20,6 +20,9 @@
 #include "hdk/hdk_interface.h"
 #endif
 
+#ifdef XRT_HAVE_PSVR
+#include "psvr/psvr_interface.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,6 +32,10 @@ extern "C" {
 typedef struct xrt_prober *(*prober_creator)();
 
 static const prober_creator DRIVERS[] = {
+#ifdef XRT_HAVE_PSVR
+    // Returns NULL if none found, so OK to go first.
+    psvr_create_prober,
+#endif
 #ifdef XRT_HAVE_HDK
     // Returns NULL if none found, so OK to go first.
     hdk_create_prober,

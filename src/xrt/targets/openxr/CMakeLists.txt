@@ -83,9 +83,15 @@ if(BUILD_WITH_OPENHMD)
 endif()
 
 if(BUILD_WITH_HIDAPI)
-	target_sources(${RUNTIME_TARGET} PRIVATE $<TARGET_OBJECTS:drv_hdk>)
+	target_sources(${RUNTIME_TARGET} PRIVATE
+		$<TARGET_OBJECTS:drv_hdk>
+		$<TARGET_OBJECTS:drv_psvr>
+		)
 	target_link_libraries(${RUNTIME_TARGET} PUBLIC ${HIDAPI_LIBRARIES})
-	target_compile_definitions(${RUNTIME_TARGET} PRIVATE XRT_HAVE_HDK)
+	target_compile_definitions(${RUNTIME_TARGET} PRIVATE
+		XRT_HAVE_HDK
+		XRT_HAVE_PSVR
+		)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
