@@ -34,9 +34,27 @@ extern "C" {
 #define PSVR_HANDLE_IFACE 4
 #define PSVR_CONTROL_IFACE 5
 
+enum psvr_status_bits
+{
+	// clang-format off
+	PSVR_STATUS_BIT_POWER                = (1 << 0),
+	PSVR_STATUS_BIT_HMD_WORN             = (1 << 1),
+	PSVR_STATUS_BIT_CINEMATIC_MODE       = (1 << 2),
+	PSVR_STATUS_BIT_UNKNOWN_BIT_3        = (1 << 3),
+	PSVR_STATUS_BIT_HEADPHONES_CONNECTED = (1 << 4),
+	PSVR_STATUS_BIT_MUTE_ENABLED         = (1 << 5),
+	PSVR_STATUS_BIT_UNKNOWN_BIT_6        = (1 << 6),
+	PSVR_STATUS_BIT_UNKNOWN_BIT_7        = (1 << 7),
+	// clang-format on
+};
+
+#define PSVR_STATUS_VR_MODE_OFF 0
+#define PSVR_STATUS_VR_MODE_ON 1
+
 #define PSVR_TICK_PERIOD (1.0f / 1000000.0f) // 1 MHz ticks
 
-#define PSVR_PKG_STATUS 0xf0
+#define PSVR_PKG_STATUS 0xF0
+#define PSVR_PKG_0xA0 0xA0
 
 
 /*

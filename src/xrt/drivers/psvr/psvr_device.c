@@ -58,21 +58,16 @@ struct psvr_device
 
 	uint16_t buttons;
 
+	bool powered_on;
+	bool in_vr_mode;
+
 	bool print_spew;
 	bool print_debug;
 };
 
-static const unsigned char psvr_power_on[8] = {
-    0x17, 0x00, 0xaa, 0x04, 0x01, 0x00, 0x00, 0x00,
-};
-
-// This command turns it completely off, like you pressed the power button.
-XRT_MAYBE_UNUSED static const unsigned char psvr_power_off[8] = {
-    0x17, 0x00, 0xaa, 0x04, 0x00, 0x00, 0x00, 0x00,
-};
 
 // Alternative way to turn on all of the leds.
-static const unsigned char psvr_tracking_on[12] = {
+XRT_MAYBE_UNUSED static const unsigned char psvr_tracking_on[12] = {
     0x11, 0x00, 0xaa, 0x08, 0x00, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
 };
 
@@ -144,31 +139,6 @@ send_to_control(struct psvr_device *psvr, const uint8_t *data, size_t size)
 	return hid_write(psvr->hmd_control, data, size);
 }
 
-inline static uint8_t
-read8(const unsigned char **buffer)
-{
-	uint8_t ret = **buffer;
-	*buffer += 1;
-	return ret;
-}
-
-inline static int16_t
-read16(const unsigned char **buffer)
-{
-	int16_t ret = **buffer | (*(*buffer + 1) << 8);
-	*buffer += 2;
-	return ret;
-}
-
-inline static uint32_t
-read32(const unsigned char **buffer)
-{
-	uint32_t ret = **buffer | (*(*buffer + 1) << 8) |
-	               (*(*buffer + 2) << 16) | (*(*buffer + 3) << 24);
-	*buffer += 4;
-	return ret;
-}
-
 
 /*
  *
@@ -211,6 +181,7 @@ update_fusion(struct psvr_device *psvr,
 	accel_from_psvr_vec(sample->accel, &psvr->raw.accel);
 	gyro_from_psvr_vec(sample->gyro, &psvr->raw.gyro);
 
+	//! @todo This is where we do the sensor fusion.
 	// ofusion_update(&psvr->sensor_fusion, dt, &psvr->raw.gyro,
 	//                &psvr->raw.accel, &mag);
 }
@@ -283,9 +254,60 @@ handle_control_status_msg(struct psvr_device *psvr,
 	if (!psvr_parse_status_packet(&packet, buffer, size)) {
 		PSVR_ERROR(psvr, "couldn't decode tracker sensor message");
 	}
+
+
+	/*
+	 * Power
+	 */
+
+	if (packet.status & PSVR_STATUS_BIT_POWER) {
+		if (!psvr->powered_on) {
+			PSVR_DEBUG(psvr, "Device powered on! '%02x'",
+			           packet.status);
+		}
+		psvr->powered_on = true;
+	} else {
+		if (psvr->powered_on) {
+			PSVR_DEBUG(psvr, "Device powered off! '%02x'",
+			           packet.status);
+		}
+		psvr->powered_on = false;
+	}
+
+
+	/*
+	 * VR-Mode
+	 */
+
+	if (packet.vr_mode == PSVR_STATUS_VR_MODE_OFF) {
+		if (psvr->in_vr_mode) {
+			PSVR_DEBUG(psvr, "Device not in vr-mode! '%02x'",
+			           packet.vr_mode);
+		}
+		psvr->in_vr_mode = false;
+	} else if (packet.vr_mode == PSVR_STATUS_VR_MODE_ON) {
+		if (!psvr->in_vr_mode) {
+			PSVR_DEBUG(psvr, "Device in vr-mode! '%02x'",
+			           packet.vr_mode);
+		}
+		psvr->in_vr_mode = true;
+	} else {
+		PSVR_ERROR(psvr, "Unknown vr_mode status!");
+	}
 }
 
 static void
+handle_control_0xA0(struct psvr_device *psvr, unsigned char *buffer, int size)
+{
+	if (size < 4) {
+		return;
+	}
+
+	PSVR_DEBUG(psvr, "%02x %02x %02x %02x", buffer[0], buffer[1], buffer[2],
+	           buffer[3]);
+}
+
+static int
 read_handle_packets(struct psvr_device *psvr)
 {
 	uint8_t buffer[FEATURE_BUFFER_SIZE];
@@ -294,14 +316,17 @@ read_handle_packets(struct psvr_device *psvr)
 	do {
 		size = hid_read(psvr->hmd_handle, buffer, FEATURE_BUFFER_SIZE);
 		if (size == 0) {
-			break;
+			return 0;
+		}
+		if (size < 0) {
+			return -1;
 		}
 
 		handle_tracker_sensor_msg(psvr, buffer, size);
 	} while (true);
 }
 
-static void
+static int
 read_control_packets(struct psvr_device *psvr)
 {
 	uint8_t buffer[FEATURE_BUFFER_SIZE];
@@ -310,11 +335,16 @@ read_control_packets(struct psvr_device *psvr)
 	do {
 		size = hid_read(psvr->hmd_control, buffer, FEATURE_BUFFER_SIZE);
 		if (size == 0) {
-			break;
+			return 0;
+		}
+		if (size < 0) {
+			return -1;
 		}
 
 		if (buffer[0] == PSVR_PKG_STATUS) {
 			handle_control_status_msg(psvr, buffer, size);
+		} else if (buffer[0] == PSVR_PKG_0xA0) {
+			handle_control_0xA0(psvr, buffer, size);
 		} else {
 			PSVR_DEBUG(psvr, "Got report, 0x%02x", buffer[0]);
 		}
@@ -330,14 +360,85 @@ read_control_packets(struct psvr_device *psvr)
  */
 
 static int
-control_vrmode(struct psvr_device *psvr, bool on)
+wait_for_power(struct psvr_device *psvr, bool on)
+{
+	for (int i = 0; i < 5000; i++) {
+		read_control_packets(psvr);
+
+		if (psvr->powered_on == on) {
+			return 0;
+		}
+
+		usleep(1000);
+	}
+
+	return -1;
+}
+
+static int
+wait_for_vr_mode(struct psvr_device *psvr, bool on)
+{
+	for (int i = 0; i < 5000; i++) {
+		read_control_packets(psvr);
+
+		if (psvr->in_vr_mode == on) {
+			return 0;
+		}
+
+		usleep(1000);
+	}
+
+	return -1;
+}
+
+static int
+control_power_and_wait(struct psvr_device *psvr, bool on)
+{
+	const char *status = on ? "on" : "off";
+	const uint8_t data[8] = {
+	    0x17, 0x00, 0xaa, 0x04, on, 0x00, 0x00, 0x00,
+	};
+
+	int ret = send_to_control(psvr, data, sizeof(data));
+	if (ret < 0) {
+		PSVR_ERROR(psvr, "Failed to switch %s the headset! '%i'",
+		           status, ret);
+	}
+
+	ret = wait_for_power(psvr, on);
+	if (ret < 0) {
+		PSVR_ERROR(psvr, "Failed to wait for headset power %s! '%i'",
+		           status, ret);
+		return ret;
+	}
+
+	return ret;
+}
+
+static int
+control_vrmode_and_wait(struct psvr_device *psvr, bool on)
 {
 	const uint8_t data[8] = {
 	    0x23, 0x00, 0xaa, 0x04, on, 0x00, 0x00, 0x00,
 	};
+	int ret;
 
-	return send_to_control(psvr, data, sizeof(data));
+	ret = send_to_control(psvr, data, sizeof(data));
+	if (ret < 0) {
+		PSVR_ERROR(psvr, "Failed %s vr-mode the headset! '%i'",
+		           on ? "enable" : "disable", ret);
+		return ret;
+	}
+
+	ret = wait_for_vr_mode(psvr, on);
+	if (ret < 0) {
+		PSVR_ERROR(psvr, "Failed to wait for vr mode! '%i'", ret);
+		return ret;
+	}
+
+	return 0;
 }
+
 
 /*!
  * Control the leds on the headset, allowing you to turn on and off different
@@ -434,7 +535,20 @@ disco_leds(struct psvr_device *psvr)
 			return ret;
 		}
 
-		usleep(100000);
+		// Sleep for a tenth of a second while polling for packages.
+		for (int k = 0; k < 100; k++) {
+			ret = read_handle_packets(psvr);
+			if (ret < 0) {
+				return ret;
+			}
+
+			ret = read_control_packets(psvr);
+			if (ret < 0) {
+				return ret;
+			}
+
+			usleep(1000);
+		}
 	}
 
 	return 0;
@@ -445,12 +559,11 @@ teardown(struct psvr_device *psvr)
 {
 
 	if (psvr->hmd_control != NULL) {
-		// Restore leds to the default settings.
-		control_leds(psvr, PSVR_LED_BACK, PSVR_LED_POWER_MAX,
-		             PSVR_LED_FRONT);
-
-		// Turn off VR-mode.
-		control_vrmode(psvr, false);
+		// Turn off VR-mode and power down headset.
+		if (control_vrmode_and_wait(psvr, false) < 0 ||
+		    control_power_and_wait(psvr, false) < 0) {
+			PSVR_ERROR(psvr, "Failed to shut down the headset!");
+		}
 
 		hid_close(psvr->hmd_control);
 		psvr->hmd_control = NULL;
@@ -567,23 +680,12 @@ psvr_device_create(struct hid_device_info *hmd_handle_info,
 		goto cleanup;
 	}
 
-	ret = send_to_control(psvr, psvr_power_on, sizeof(psvr_power_on));
-	if (ret < 0) {
-		PSVR_ERROR(psvr, "Failed to send psvr_power_on! '%i'", ret);
+	if (control_power_and_wait(psvr, true) < 0 ||
+	    control_vrmode_and_wait(psvr, true) < 0) {
 		goto cleanup;
 	}
 
-	ret = control_vrmode(psvr, true);
-	if (ret < 0) {
-		PSVR_ERROR(psvr, "Failed to switch to VR-mode! '%i'", ret);
-		goto cleanup;
-	}
-
-	ret = send_to_control(psvr, psvr_tracking_on, sizeof(psvr_tracking_on));
-	if (ret < 0) {
-		PSVR_ERROR(psvr, "Failed to send psvr_tracking_on! '%i'", ret);
-		goto cleanup;
-	}
+	//usleep(1000 * 1000);
 
 	if (debug_get_bool_option_psvr_disco()) {
 		ret = disco_leds(psvr);
