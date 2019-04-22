@@ -79,7 +79,7 @@ push(struct oxr_instance *inst, struct oxr_event *event)
 		if (ret != XR_SUCCESS) {                                       \
 			return ret;                                            \
 		}                                                              \
-		*extra = (typeof(*extra))(*event)->ptr();                      \
+		*extra = (__typeof__(*extra))(*event)->ptr();                      \
 	} while (false)
 
 static XrResult
